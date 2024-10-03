@@ -4,6 +4,8 @@ import re
 import sys
 import inspect
 
+MAXVAL = 200
+
 def explore_methods(o):
     for n in dir(o):
         if n in ('Clear', '__del__'):
@@ -32,15 +34,25 @@ def crochet_rec (var, regex, maxdepth, depth , visited, p):
 
         t = var.GetType()
 
+        is_array = t.IsArrayType()
+        is_aggregate = t.IsAggregateType()
+
         inheritance = var.path == 'this' and var.name != 'this'
 
         if regex is None or re.search(regex, var.GetName(), re.I | re.UNICODE | re.MULTILINE):
-            if t.IsAggregateType():
+            if is_aggregate:
                 type_str = ''
             else:
                 type_str = f'({t.GetDisplayTypeName()}) '
             
-            p(f'{indent}{": " if inheritance else ""}{type_str}{var.GetName()}{" {" if var.children and not inheritance else ""}')
+            lldb_val = var.GetValue()
+            if lldb_val is None:
+                val = ""
+            else:
+                val = " = " + str(var.GetValue()).replace('\n', ' ')
+            if len(val) > MAXVAL:
+                val = val[:MAXVAL-4] + ' ...'
+            p(f'{indent}{": " if inheritance else ""}{type_str}{var.GetName()}{" {" if var.children and not inheritance else ""}{val}')
 
         if var.GetType().IsPointerType() and var.GetValueAsUnsigned() == 0:
             return
@@ -63,8 +75,12 @@ def crochet_rec (var, regex, maxdepth, depth , visited, p):
                 new_depth = depth + 1
 
             crochet_rec(baby, regex, maxdepth, new_depth, visited, p)
-        
-        p(f'{indent}{"" if inheritance else "}"} # var.path={var.path}, var.name={var.name}')
+
+            if not is_array and not is_base: # not sure second condition is needed
+                p(f'{indent}}}')        
+
+        if is_array:
+            p(f'{indent}}}')
 
 
     except Exception as e:
